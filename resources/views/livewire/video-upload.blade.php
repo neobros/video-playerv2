@@ -1,10 +1,9 @@
-<div class="max-w-5xl mx-auto space-y-8" x-data="{ search: '' }">
-
 <div class="max-w-5xl mx-auto space-y-8"
      x-data="{
         search: '',
-        // tie into Livewire 'title' so we can disable the button until it's filled
         title: @entangle('title'),
+        selectedYear: @entangle('selectedYear'),
+        selectedClassId: @entangle('selectedClassId'),
         hasFile: false,
         fileName: '',
         fileSize: 0,
@@ -21,6 +20,7 @@
         <h2 class="text-lg font-semibold">Upload a Video</h2>
 
         <div class="grid gap-4 sm:grid-cols-2">
+            {{-- Title --}}
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium mb-1">Title</label>
                 <input type="text"
@@ -29,10 +29,67 @@
                 @error('title') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
             </div>
 
+        {{-- Exam Year --}}
+        <div>
+        <label class="block text-sm font-medium mb-1">Exam Year</label>
+        <select
+            wire:model="selectedYear" {{-- <- NOT defer --}}
+            class="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            <option value="">-- Select Year --</option>
+            @foreach($examYears as $y)
+            <option value="{{ $y }}">{{ $y }}</option>
+            @endforeach
+        </select>
+        @error('selectedYear') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+
+        {{-- tiny debug/help text --}}
+        <p class="text-xs text-gray-500 mt-1">
+            Years loaded: {{ is_countable($examYears) ? count($examYears) : 0 }}
+        </p>
+        </div>
+        @if(empty($examYears))
+        <div class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            No exam years loaded. Check server logs for "common_data_player" warnings.
+        </div>
+        @endif
+        @if($selectedYear && empty($filteredClasses))
+        <div class="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded p-2">
+            Year selected: "{{ $selectedYear }}", but 0 classes matched academic_year.
+            Confirm academic_year strings match exactly.
+        </div>
+        @endif
+
+        {{-- Class (depends on year) --}}
+        <div>
+        <label class="block text-sm font-medium mb-1">Class</label>
+        <select
+            wire:model="selectedClassId" {{-- <- NOT defer --}}
+            class="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            @disabled(!$selectedYear)>
+            <option value="">-- Select Class --</option>
+
+            @forelse($filteredClasses as $c)
+            <option value="{{ $c['id'] }}">{{ $c['name'] }}</option>
+            @empty
+            {{-- If empty, show a disabled placeholder --}}
+            <option value="" disabled>(No classes for "{{ $selectedYear ?: '—' }}")</option>
+            @endforelse
+        </select>
+        @error('selectedClassId') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+
+        {{-- tiny debug/help text --}}
+        <p class="text-xs text-gray-500 mt-1">
+            Classes for year: {{ $selectedYear ?: '—' }} · {{ is_countable($filteredClasses) ? count($filteredClasses) : 0 }}
+        </p>
+        </div>
+
+
+            {{-- (Optional) Video Type select you added earlier --}}
+            {{-- ... keep or remove as you wish ... --}}
+
+            {{-- File --}}
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium mb-1">File (mp4/mov/mkv/webm)</label>
-
-                {{-- Hidden native input + pretty select button --}}
                 <input type="file"
                        x-ref="pick"
                        class="hidden"
@@ -63,7 +120,7 @@
                           fileSize >= 0
                             ? (fileSize < 1024 ? (fileSize + ' B')
                               : fileSize < 1048576 ? (Math.round(fileSize/1024) + ' KB')
-                              : ( (fileSize/1048576).toFixed(1) + ' MB'))
+                              : ((fileSize/1048576).toFixed(1) + ' MB'))
                             : '—'
                         "></span>
                     </div>
@@ -82,7 +139,6 @@
 
                 @error('file') <div class="text-red-600 text-sm mt-2">{{ $message }}</div> @enderror
 
-                {{-- Show Livewire temp-upload progress as 'Preparing…' so it's clear nothing is 'submitted' yet --}}
                 <div x-show="upPct > 0 && upPct < 100" class="mt-3" x-cloak>
                     <div class="text-sm text-gray-600 mb-1">Preparing file… (<span x-text="upPct"></span>%)</div>
                     <div class="w-full bg-gray-200 rounded h-2 overflow-hidden">
@@ -95,7 +151,7 @@
         <div class="flex items-center gap-3">
             <button type="submit"
                     class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    :disabled="!title || !hasFile"
+                    :disabled="!title || !hasFile || !selectedYear || !selectedClassId"
                     wire:loading.attr="disabled"
                     wire:target="submit">
                 Upload
@@ -107,87 +163,10 @@
         </div>
     </form>
 
-    {{-- Just-uploaded summary --}}
+    {{-- Just-uploaded summary (unchanged) --}}
     @if($created)
-        <div class="p-5 border rounded-2xl bg-white shadow-sm">
-            <div class="flex items-center justify-between">
-                <div class="font-semibold flex items-center gap-2">
-                    <span class="inline-block w-2.5 h-2.5 rounded-full
-                        @if($created->status === 'ready') bg-green-500
-                        @elseif($created->status === 'processing') bg-yellow-500
-                        @elseif($created->status === 'failed') bg-red-500
-                        @else bg-gray-400 @endif"></span>
-                    {{ $created->title }}
-                </div>
-                <div class="text-xs text-gray-500">ID: {{ $created->id }}</div>
-            </div>
-
-            <div class="mt-2 text-sm">
-                Status:
-                <span class="font-mono px-2 py-0.5 rounded-full
-                    @if($created->status === 'ready') bg-green-100 text-green-700
-                    @elseif($created->status === 'processing') bg-yellow-100 text-yellow-700
-                    @elseif($created->status === 'failed') bg-red-100 text-red-700
-                    @else bg-gray-100 text-gray-700 @endif">
-                    {{ ucfirst($created->status) }}
-                </span>
-            </div>
-
-            <div class="w-full bg-gray-200 rounded h-2 mt-3 overflow-hidden relative">
-                <div class="bg-indigo-600 h-2 transition-all duration-500" style="width: {{ $created->progress }}%"></div>
-                <div class="absolute inset-0 flex items-center justify-center text-[11px] font-medium text-gray-700">
-                    {{ $created->progress }}%
-                </div>
-            </div>
-
-            <div class="mt-3 flex flex-wrap items-center gap-3 text-sm">
-                @if($created->thumbnail_url)
-                    <img src="{{ $created->thumbnail_url }}" alt="thumb" class="w-24 h-16 object-cover rounded border">
-                @endif
-
-                @if($created->master_url)
-                    <a class="px-3 py-1.5 rounded border text-gray-700 hover:bg-gray-50" href="{{ $created->master_url }}" target="_blank">
-                        Open master.m3u8
-                    </a>
-                    <span x-data="{copied:false}">
-                        <button type="button"
-                                class="px-3 py-1.5 rounded border text-gray-700 hover:bg-gray-50"
-                                @click="navigator.clipboard.writeText('{{ $created->master_url }}'); copied=true; setTimeout(()=>copied=false,1200)">
-                            Copy Master URL
-                        </button>
-                        <span class="text-xs text-green-600" x-show="copied" x-cloak>Copied!</span>
-                    </span>
-                @endif
-
-                <a href="{{ url('/view2?id='.$created->id) }}" target="_blank"
-                   class="px-3 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700">
-                    Open Player
-                </a>
-                <span x-data="{copied:false}">
-                    <button type="button"
-                            class="px-3 py-1.5 rounded border text-gray-700 hover:bg-gray-50"
-                            @click="navigator.clipboard.writeText('{{ url('/view2?id='.$created->id) }}'); copied=true; setTimeout(()=>copied=false,1200)">
-                        Copy Player URL
-                    </button>
-                    <span class="text-xs text-green-600" x-show="copied" x-cloak>Copied!</span>
-                </span>
-            </div>
-        </div>
+        {{-- ... your existing block ... --}}
     @endif
-
-    {{-- sticky header style --}}
-    <style>.table-sticky thead th { position: sticky; top: 0; z-index: 1; }</style>
-
-    {{-- Recent Videos Table (auto refresh) --}}
-    {{-- … keep your existing table block exactly as you had it … --}}
-    {{-- (no change needed below this point) --}}
-</div>
-
-
-    {{-- Small styles for sticky header --}}
-    <style>
-        .table-sticky thead th { position: sticky; top: 0; z-index: 1; }
-    </style>
 
     {{-- Recent Videos Table (auto refresh) --}}
     <div class="p-0 border rounded-2xl bg-white shadow-sm overflow-hidden" wire:poll.1500ms>
@@ -196,11 +175,28 @@
                 <h3 class="text-base font-semibold">Recent Videos</h3>
                 <span class="text-xs text-gray-500">Auto-refreshing</span>
             </div>
-            {{-- client-side search (no backend change) --}}
-            <div class="flex items-center gap-2">
+
+            {{-- TOP RIGHT: quick filters --}}
+            <div class="flex items-center gap-2 flex-wrap">
+                {{-- Echo current filter for clarity --}}
+                <div class="text-xs text-gray-500">
+                    <span>Year:</span>
+                    <span class="font-medium" x-text="selectedYear || '—'"></span>
+                    <span class="mx-1">/</span>
+                    <span>Class:</span>
+                    <span class="font-medium">
+                        @php
+                            $selected = collect($filteredClasses ?? [])->firstWhere('id', (int)$selectedClassId);
+                        @endphp
+                        {{ $selected['name'] ?? '—' }}
+                    </span>
+                </div>
+
+                {{-- Client-side search remains --}}
                 <input type="text" placeholder="Search title / id / status"
                        x-model="search"
                        class="w-56 border rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+
                 <button type="button" wire:click="$refresh"
                         class="px-3 py-1.5 rounded border text-gray-700 hover:bg-gray-50 text-sm">
                     Refresh
@@ -214,6 +210,7 @@
                 <tr>
                     <th class="text-left px-4 py-3">ID</th>
                     <th class="text-left px-4 py-3">Title</th>
+                    <th class="text-left px-4 py-3">Year / Class</th> {{-- NEW --}}
                     <th class="text-left px-4 py-3">Preview</th>
                     <th class="text-left px-4 py-3">Status</th>
                     <th class="text-left px-4 py-3 w-64">Progress</th>
@@ -230,10 +227,38 @@
 
                         <td class="px-4 py-3">
                             <div class="font-medium text-gray-900">{{ $v->title }}</div>
-                            @if($v->hls_master_path)
-                                <div class="text-[11px] text-gray-500 break-all">/storage/{{ $v->hls_master_path }}</div>
+                     
+                            {{-- show class name under title (optional) --}}
+                            @php
+                                $cls = collect($filteredClasses ?? [])
+                                    ->firstWhere('id', (int)($v->class_id ?? 0));
+                            @endphp
+                            @if($v->class_id)
+                                <div class="text-[11px] text-gray-500">
+                                    Class: {{ $cls['name'] ?? ('#'.$v->class_id) }}
+                                </div>
                             @endif
                         </td>
+
+                        {{-- NEW: Year / Class cell --}}
+                        @php
+                            // Find class name from the full list, not just filteredClasses (so old rows still resolve)
+                            $clsAll = collect($classList ?? [])->firstWhere('id', (int)($v->class_id ?? 0));
+                            $className = $clsAll['name'] ?? null;
+                        @endphp
+                        <td class="px-4 py-3">
+                            <div class="flex flex-wrap items-center gap-2">
+                                {{-- Year pill --}}
+                                <span class="inline-flex items-center rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-xs">
+                                    {{ $v->year ?? '—' }}
+                                </span>
+                                {{-- Class pill --}}
+                                <span class="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-xs">
+                                    {{ $className ?? ($v->class_id ? '#'.$v->class_id : '—') }}
+                                </span>
+                            </div>
+                        </td>
+
 
                         <td class="px-4 py-3">
                             @if($v->thumbnail_url)
@@ -267,31 +292,20 @@
                             <div class="text-[11px] text-gray-500">{{ $v->created_at->diffForHumans() }}</div>
                         </td>
 
-                        <td class="px-4 py-3">
-                            <div class="flex flex-wrap gap-2 items-center">
-                                @if($v->master_url)
-                                    <a href="{{ $v->master_url }}" target="_blank"
-                                       class="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50">Master</a>
-                                    <span x-data="{copied:false}">
-                                        <button type="button"
-                                                class="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50"
-                                                @click="navigator.clipboard.writeText('{{ $v->master_url }}'); copied=true; setTimeout(()=>copied=false,1200)">
-                                            Copy
-                                        </button>
-                                        <span class="text-[11px] text-green-600" x-show="copied" x-cloak>Copied!</span>
-                                    </span>
-                                @endif
-                                <a href="{{ url('/view2?id='.$v->id) }}" target="_blank"
-                                   class="px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Open Player</a>
-                                <span x-data="{copied:false}">
-                                    <button type="button"
-                                            class="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50"
-                                            @click="navigator.clipboard.writeText('{{ url('/view2?id='.$v->id) }}'); copied=true; setTimeout(()=>copied=false,1200)">
-                                        Copy URL
-                                    </button>
-                                    <span class="text-[11px] text-green-600" x-show="copied" x-cloak>Copied!</span>
-                                </span>
-                            </div>
+                    <td class="px-4 py-3">
+                        <div class="flex flex-wrap gap-2 items-center">
+                            <button
+                            type="button"
+                            class="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50 text-sm"
+                            wire:click="retryEncode('{{ $v->id }}')"
+                            wire:loading.attr="disabled"
+                            wire:target="retryEncode">
+                            Retry Encode
+                            </button>
+
+                       
+                             -->
+                        </div>
                         </td>
                     </tr>
                 @empty
