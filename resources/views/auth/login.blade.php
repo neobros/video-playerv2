@@ -117,7 +117,7 @@
 <body>
     <div class="home-container">
         <video autoplay muted loop playsinline>
-            <source src="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
+            <source src="https://static.vecteezy.com/system/resources/previews/044/301/371/mp4/glowing-neon-mathematics-formulas-flying-chaotically-on-black-background-seamless-loop-animation-concept-of-exact-science-and-education-video.mp4" type="video/mp4">
         </video>
 
         <div class="overlay"></div>
