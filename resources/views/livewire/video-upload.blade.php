@@ -1,4 +1,4 @@
-<div class="max-w-5xl mx-auto space-y-8"
+<div class="max-w-12xl mx-auto space-y-8"
      x-data="{
         search: '',
         title: @entangle('title'),
@@ -294,17 +294,22 @@
 
                     <td class="px-4 py-3">
                         <div class="flex flex-wrap gap-2 items-center">
-                            <button
-                            type="button"
-                            class="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50 text-sm"
-                            wire:click="retryEncode('{{ $v->id }}')"
-                            wire:loading.attr="disabled"
-                            wire:target="retryEncode">
-                            Retry Encode
+                        <button
+                                type="button"
+                                x-on:click="
+                                    if (confirm('Are you sure you want to retry encoding this video?')) {
+                                        $wire.retryEncode('{{ $v->id }}');
+                                    }
+                                "
+                                class="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50 text-sm"
+                                wire:loading.attr="disabled"
+                                wire:target="retryEncode">
+                                Retry Encode
                             </button>
 
+
                        
-                             -->
+                         
                         </div>
                         </td>
                     </tr>
