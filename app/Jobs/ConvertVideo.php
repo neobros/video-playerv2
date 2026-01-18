@@ -26,14 +26,13 @@ class ConvertVideo implements ShouldQueue
 
     public function handle(): void
     {
-        // If you created config/video.php as suggested before; otherwise hardcode '/usr/bin/ffmpeg'
         $this->ffmpeg = (string) (config('video.ffmpeg') ?? '/usr/bin/ffmpeg');
 
         $video = $this->video->refresh();
         $video->update([
             'status'        => 'processing',
             'progress'      => 1,
-            'error_message' => null, // if you added this column
+            'error_message' => null,
         ]);
 
         $disk = Storage::disk('public');
@@ -44,7 +43,7 @@ class ConvertVideo implements ShouldQueue
         }
 
         $baseDir = "videos/{$video->year}/{$video->id}";
-        $origRel = $video->original_path; // path on 'public' disk
+        $origRel = $video->original_path;
         $absOrig = $disk->path($origRel);
 
         if (!$disk->exists($origRel) || !is_file($absOrig)) {
@@ -57,9 +56,10 @@ class ConvertVideo implements ShouldQueue
         $hls480Dir = "$baseDir/hls_480p";
         $hls360Dir = "$baseDir/hls_360p";
         $hls240Dir = "$baseDir/hls_240p";
+        $hls144Dir = "$baseDir/hls_144p";
         $thumbDir  = "$baseDir/thumbnails";
 
-        foreach ([$hls480Dir, $hls360Dir, $hls240Dir, $thumbDir] as $d) {
+        foreach ([$hls480Dir, $hls360Dir, $hls240Dir, $hls144Dir, $thumbDir] as $d) {
             if (!$disk->exists($d)) $disk->makeDirectory($d);
             $abs = $disk->path($d);
             if (!is_writable($abs)) {
@@ -70,132 +70,204 @@ class ConvertVideo implements ShouldQueue
         $abs480Dir = $disk->path($hls480Dir);
         $abs360Dir = $disk->path($hls360Dir);
         $abs240Dir = $disk->path($hls240Dir);
-        $thumbPng  = $disk->path($thumbDir . '/thumb.png');
+        $abs144Dir = $disk->path($hls144Dir);
 
-        // Shared params (CFR 24 -> GOP 96 for 4s segments)
-        $fps = 24; $seg = 4; $gop = $fps * $seg; // 96
+        // --------------------------------------------------------------------
+        // ✅ OPTIMIZED FOR LOW NETWORK USERS (e.g., 3G ~500kbps)
+        // Added: 144p ultra-low rung for very weak networks
+        // --------------------------------------------------------------------
 
-        // ---- 480p (848x480) Baseline@3.1 -----------------------------------
+        $fps = 24;
+        $seg = 4;                  // 4s segments (good balance)
+        $gop = $fps * $seg;        // segment-aligned GOP
+        $forceKeyExpr = "expr:gte(t,n_forced*{$seg})";
+
+        // Shared base arguments
+        $baseArgs = [
+            $this->ffmpeg, '-y',
+            '-hide_banner',
+            '-v', 'error',
+            '-i', $absOrig,
+
+            // make HLS segments switch-friendly
+            '-vsync', 'cfr',
+            '-r', (string)$fps,
+
+            // H.264 baseline for widest device support
+            '-c:v', 'libx264',
+            '-profile:v', 'baseline',
+
+            // keep segments clean + ABR-friendly
+            '-g', (string)$gop,
+            '-keyint_min', (string)$gop,
+            '-sc_threshold', '0',
+            '-force_key_frames', $forceKeyExpr,
+
+            // remove b-frames (baseline safe + less decode complexity)
+            '-x264-params', 'bframes=0:ref=2:scenecut=0:force-cfr=1',
+
+            // output pixel format for compatibility
+            '-pix_fmt', 'yuv420p',
+
+            // HLS options
+            '-hls_time', (string)$seg,
+            '-hls_segment_type', 'mpegts',
+            '-hls_flags', 'independent_segments',
+            '-hls_playlist_type', 'vod',
+
+            // if some videos have weird timestamps
+            '-fflags', '+genpts',
+            '-max_muxing_queue_size', '4096',
+        ];
+
+        // ---- 480p -----------------------------------------------------------
         $video->update(['progress' => 10]);
         try {
-            $this->run([
-                $this->ffmpeg,'-y','-v','error',
-                '-i', $absOrig,
-                '-vsync','cfr','-r',(string)$fps,
-                '-vf','scale=848:480',
-                '-pix_fmt','yuv420p',
-                '-c:v','libx264','-profile:v','baseline','-level','3.1',
-                '-x264-params','bframes=0:ref=2:scenecut=0:force-cfr=1',
-                '-preset','veryfast',
-                '-g',(string)$gop,'-keyint_min',(string)$gop,'-sc_threshold','0',
-                '-b:v','900k','-maxrate','950k','-bufsize','1800k',
-                '-c:a','aac','-ar','44100','-b:a','128k',
-                '-hls_time',(string)$seg,
-                '-hls_segment_type','mpegts',
-                '-hls_flags','independent_segments',
-                '-hls_segment_filename', $abs480Dir.'/seg_%03d.ts',
-                '-hls_playlist_type','vod',
-                $abs480Dir.'/index.m3u8'
-            ], 3600);
+            $this->run(array_merge($baseArgs, [
+                '-vf', 'scale=848:480',
+
+                // CRF + VBV
+                '-crf', '23',
+                '-maxrate', '800k',
+                '-bufsize', '1600k',
+
+                '-preset', 'veryfast',
+
+                // audio
+                '-c:a', 'aac',
+                '-ar', '44100',
+                '-b:a', '96k',
+
+                '-hls_segment_filename', $abs480Dir.'/seg_%05d.ts',
+                $abs480Dir.'/index.m3u8',
+            ]), 3600);
         } catch (Exception $e) {
             $this->failNow("480p encode failed", $e);
             return;
         }
 
-        // ---- 360p (640x360) Baseline@3.0 -----------------------------------
-        $video->update(['progress' => 45]);
+        // ---- 360p -----------------------------------------------------------
+        $video->update(['progress' => 40]);
         try {
-            $this->run([
-                $this->ffmpeg,'-y','-v','error',
-                '-i', $absOrig,
-                '-vsync','cfr','-r',(string)$fps,
-                '-vf','scale=640:360',
-                '-pix_fmt','yuv420p',
-                '-c:v','libx264','-profile:v','baseline','-level','3.0',
-                '-x264-params','bframes=0:ref=2:scenecut=0:force-cfr=1',
-                '-preset','veryfast',
-                '-g',(string)$gop,'-keyint_min',(string)$gop,'-sc_threshold','0',
-                '-b:v','550k','-maxrate','600k','-bufsize','1200k',
-                '-c:a','aac','-ar','44100','-b:a','96k',
-                '-hls_time',(string)$seg,
-                '-hls_segment_type','mpegts',
-                '-hls_flags','independent_segments',
-                '-hls_segment_filename', $abs360Dir.'/seg_%03d.ts',
-                '-hls_playlist_type','vod',
-                $abs360Dir.'/index.m3u8'
-            ], 3600);
+            $this->run(array_merge($baseArgs, [
+                '-vf', 'scale=640:360',
+                '-level', '3.0',
+
+                // CRF + VBV tuned for low bandwidth
+                '-crf', '24',
+                '-maxrate', '380k',
+                '-bufsize', '760k',
+
+                '-preset', 'veryfast',
+
+                // smaller audio
+                '-c:a', 'aac',
+                '-ar', '32000',
+                '-b:a', '48k',
+
+                '-hls_segment_filename', $abs360Dir.'/seg_%05d.ts',
+                $abs360Dir.'/index.m3u8',
+            ]), 3600);
         } catch (Exception $e) {
             $this->failNow("360p encode failed", $e);
             return;
         }
 
-        // ---- 240p (426x240) Baseline@3.0 (extra safe for very low devices) --
+        // ---- 240p -----------------------------------------------------------
         $video->update(['progress' => 60]);
         try {
-            $this->run([
-                $this->ffmpeg,'-y','-v','error',
-                '-i', $absOrig,
-                '-vsync','cfr','-r',(string)$fps,
-                '-vf','scale=426:240',
-                '-pix_fmt','yuv420p',
-                '-c:v','libx264','-profile:v','baseline','-level','3.0',
-                '-x264-params','bframes=0:ref=2:scenecut=0:force-cfr=1',
-                '-preset','veryfast',
-                '-g',(string)$gop,'-keyint_min',(string)$gop,'-sc_threshold','0',
-                '-b:v','350k','-maxrate','380k','-bufsize','700k',
-                '-c:a','aac','-ar','44100','-b:a','64k',
-                '-hls_time',(string)$seg,
-                '-hls_segment_type','mpegts',
-                '-hls_flags','independent_segments',
-                '-hls_segment_filename', $abs240Dir.'/seg_%03d.ts',
-                '-hls_playlist_type','vod',
-                $abs240Dir.'/index.m3u8'
-            ], 3600);
+            $this->run(array_merge($baseArgs, [
+                '-vf', 'scale=426:240',
+                '-level', '3.0',
+
+                // lower ladder
+                '-crf', '26',
+                '-maxrate', '260k',
+                '-bufsize', '520k',
+
+                '-preset', 'veryfast',
+
+                // smaller audio
+                '-c:a', 'aac',
+                '-ar', '32000',
+                '-b:a', '40k',
+
+                '-hls_segment_filename', $abs240Dir.'/seg_%05d.ts',
+                $abs240Dir.'/index.m3u8',
+            ]), 3600);
         } catch (Exception $e) {
             $this->failNow("240p encode failed", $e);
             return;
         }
 
-     // --- Thumbnail (JPEG) ---
-$video->update(['progress' => 70]);
+        // ---- 144p (ultra-safe for very weak networks) -----------------------
+        // Target: ~140-180k video + 24k audio ≈ 165-205k total
+        $video->update(['progress' => 75]);
+        try {
+            $this->run(array_merge($baseArgs, [
+                // 16:9 approximate width for 144p
+                '-vf', 'scale=256:144',
+                '-level', '3.0',
 
-try {
-    $thumbRel = "$thumbDir/thumb.jpg";
-    $absThumb = $disk->path($thumbRel);
+                // very low VBV for weak networks
+                '-crf', '28',
+                '-maxrate', '180k',
+                '-bufsize', '360k',
 
-    $this->run([
-        $this->ffmpeg,'-y','-v','error',
-        '-ss','00:00:05','-i',$absOrig,
-        '-frames:v','1',
-        // Force full-range JPEG-friendly pixel format:
-        '-vf','scale=640:-1,format=yuvj420p',
-        '-q:v','2',                 // good quality (2..31; lower = better)
-        $absThumb
-    ], 300);
+                '-preset', 'veryfast',
 
-    $savedThumbRel = $thumbRel;
-} catch (Exception $e) {
-    Log::warning("Thumbnail extract failed: {$e->getMessage()}");
-    $savedThumbRel = null;
-}
+                // tiny audio
+                '-c:a', 'aac',
+                '-ar', '22050',
+                '-b:a', '24k',
+
+                '-hls_segment_filename', $abs144Dir.'/seg_%05d.ts',
+                $abs144Dir.'/index.m3u8',
+            ]), 3600);
+        } catch (Exception $e) {
+            $this->failNow("144p encode failed", $e);
+            return;
+        }
+
+        // --- Thumbnail (JPEG) ------------------------------------------------
+        $video->update(['progress' => 85]);
+        $thumbRel = "$thumbDir/thumb.jpg";
+        try {
+            $absThumb = $disk->path($thumbRel);
+
+            $this->run([
+                $this->ffmpeg, '-y', '-hide_banner', '-v', 'error',
+                '-ss', '00:00:05', '-i', $absOrig,
+                '-frames:v', '1',
+                '-vf', 'scale=640:-1,format=yuvj420p',
+                '-q:v', '2',
+                $absThumb
+            ], 300);
+        } catch (Exception $e) {
+            Log::warning("Thumbnail extract failed: {$e->getMessage()}");
+            $thumbRel = null;
+        }
 
         // ---- Master playlist ------------------------------------------------
-        $video->update(['progress' => 85]);
+        $video->update(['progress' => 92]);
         $masterRel = "$baseDir/master.m3u8";
         $masterAbs = $disk->path($masterRel);
 
-        // CODECS use common strings for H.264 Baseline levels
+        // ✅ Bandwidth values updated to match ladder (include 144p)
         $master = <<<M3U8
 #EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-INDEPENDENT-SEGMENTS
-#EXT-X-STREAM-INF:BANDWIDTH=1100000,AVERAGE-BANDWIDTH=950000,RESOLUTION=848x480,CODECS="avc1.42E01F,mp4a.40.2",FRAME-RATE=24.0
+#EXT-X-STREAM-INF:BANDWIDTH=950000,AVERAGE-BANDWIDTH=850000,RESOLUTION=848x480,CODECS="avc1.42E01F,mp4a.40.2",FRAME-RATE=24.0
 hls_480p/index.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=700000,AVERAGE-BANDWIDTH=600000,RESOLUTION=640x360,CODECS="avc1.42E01E,mp4a.40.2",FRAME-RATE=24.0
+#EXT-X-STREAM-INF:BANDWIDTH=480000,AVERAGE-BANDWIDTH=420000,RESOLUTION=640x360,CODECS="avc1.42E01E,mp4a.40.2",FRAME-RATE=24.0
 hls_360p/index.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=450000,AVERAGE-BANDWIDTH=380000,RESOLUTION=426x240,CODECS="avc1.42E01E,mp4a.40.2",FRAME-RATE=24.0
+#EXT-X-STREAM-INF:BANDWIDTH=330000,AVERAGE-BANDWIDTH=290000,RESOLUTION=426x240,CODECS="avc1.42E01E,mp4a.40.2",FRAME-RATE=24.0
 hls_240p/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=220000,AVERAGE-BANDWIDTH=190000,RESOLUTION=256x144,CODECS="avc1.42E01E,mp4a.40.2",FRAME-RATE=24.0
+hls_144p/index.m3u8
 M3U8;
+
         file_put_contents($masterAbs, $master);
 
         // ---- Save paths -----------------------------------------------------
@@ -204,6 +276,7 @@ M3U8;
             'hls_480p_path'   => "$hls480Dir/index.m3u8",
             'hls_360p_path'   => "$hls360Dir/index.m3u8",
             'hls_240p_path'   => "$hls240Dir/index.m3u8",
+            'hls_144p_path'   => "$hls144Dir/index.m3u8",
             'thumbnail_path'  => $thumbRel,
             'status'          => 'ready',
             'progress'        => 100,
@@ -213,46 +286,46 @@ M3U8;
 
     private function run(array $cmd, int $timeout): void
     {
-        $ffLog = storage_path('logs/ffmpeg_'.date('Ymd_His').'_'.uniqid().'.log');
+        $ffLog = storage_path('logs/ffmpeg_' . date('Ymd_His') . '_' . uniqid() . '.log');
         $proc = new Process($cmd, null, null, null, $timeout);
         $proc->run();
 
         $stderr = $proc->getErrorOutput();
         $stdout = $proc->getOutput();
 
-        if ($stdout) file_put_contents($ffLog, $stdout.PHP_EOL, FILE_APPEND);
-        if ($stderr) file_put_contents($ffLog, $stderr.PHP_EOL, FILE_APPEND);
+        if ($stdout) file_put_contents($ffLog, $stdout . PHP_EOL, FILE_APPEND);
+        if ($stderr) file_put_contents($ffLog, $stderr . PHP_EOL, FILE_APPEND);
 
         if (!$proc->isSuccessful()) {
             $msg = trim($stderr) ?: 'FFmpeg process failed without stderr.';
             $this->lastError = $msg;
-            Log::error("FFmpeg failed. CMD: ".implode(' ', $cmd)."\n".$msg."\nLog: ".$ffLog);
+            Log::error("FFmpeg failed. CMD: " . implode(' ', $cmd) . "\n" . $msg . "\nLog: " . $ffLog);
             throw new Exception($msg);
         } else {
-            Log::info("FFmpeg OK. Log: ".$ffLog);
+            Log::info("FFmpeg OK. Log: " . $ffLog);
         }
     }
 
     private function checkFfmpeg(): bool
     {
         try {
-            $p = new Process([$this->ffmpeg,'-version']);
+            $p = new Process([$this->ffmpeg, '-version']);
             $p->run();
             if (!$p->isSuccessful()) {
-                Log::error("{$this->ffmpeg} -version failed: ".$p->getErrorOutput());
+                Log::error("{$this->ffmpeg} -version failed: " . $p->getErrorOutput());
                 return false;
             }
-            Log::info("FFmpeg detected: ".strtok($p->getOutput(), "\n"));
+            Log::info("FFmpeg detected: " . strtok($p->getOutput(), "\n"));
             return true;
         } catch (\Throwable $e) {
-            Log::error("FFmpeg check error: ".$e->getMessage());
+            Log::error("FFmpeg check error: " . $e->getMessage());
             return false;
         }
     }
 
     private function failNow(string $stage, Exception $e): void
     {
-        Log::error("$stage: ".$e->getMessage());
+        Log::error("$stage: " . $e->getMessage());
         $this->video->update([
             'status'        => 'failed',
             'progress'      => 0,
@@ -262,7 +335,7 @@ M3U8;
 
     public function failed(Exception $e): void
     {
-        Log::error("ConvertVideo job failed: ".$e->getMessage());
+        Log::error("ConvertVideo job failed: " . $e->getMessage());
         $this->video->update([
             'status'        => 'failed',
             'progress'      => 0,
