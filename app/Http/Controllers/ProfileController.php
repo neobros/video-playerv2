@@ -8,7 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\View\View;
-
+use Illuminate\Support\Facades\Hash;
+use App\Models\User;
 class ProfileController extends Controller
 {
     /**
@@ -19,6 +20,31 @@ class ProfileController extends Controller
         return view('profile.edit', [
             'user' => $request->user(),
         ]);
+    }
+
+    public function login_custom(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|string|email|max:255',
+            'password' => 'required|string',
+        ]);
+
+   
+
+        $admin = User::where('email', $request->email)->first();
+
+        if($admin &&  Hash::check($request->password, $admin->password)) {
+        
+            Auth::login($admin);
+           
+           return redirect()->route('videos.upload')->with('success', 'Login successfully');
+
+        }
+
+        return redirect()->back()
+            ->withErrors(['password' => 'Invalid Credentialskkk'])
+            ->withInput();
+
     }
 
     /**
@@ -40,20 +66,15 @@ class ProfileController extends Controller
     /**
      * Delete the user's account.
      */
-    public function destroy(Request $request): RedirectResponse
+    public function logOut(Request $request): RedirectResponse
     {
     
 
-        $user = $request->user();
-
         Auth::logout();
-
-        $user->delete();
-
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return Redirect::to('/');
+        return redirect()->route('/');
     }
 
 
