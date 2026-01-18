@@ -19,7 +19,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*' ,'http://localhost:5173'],
+    'allowed_origins' => ['*' ,'http://localhost:5173','https://lms-zoom.vercel.app' ,'https://dev4.eoe.lk'],
 
     'allowed_origins_patterns' => [],
 

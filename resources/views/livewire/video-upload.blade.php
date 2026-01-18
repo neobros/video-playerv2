@@ -1,6 +1,5 @@
-<div class="max-w-5xl mx-auto space-y-8"
+<div class="max-w-12xl mx-auto space-y-8"
      x-data="{
-        search: '',
         title: @entangle('title'),
         selectedYear: @entangle('selectedYear'),
         selectedClassId: @entangle('selectedClassId'),
@@ -14,6 +13,27 @@
      x-on:livewire-upload-error="upPct = 0"
      x-on:livewire-upload-finish="upPct = 100"
 >
+
+    {{-- Top bar + Logout --}}
+    <div class="flex items-center justify-between mb-4">
+        <h1 class="text-xl font-semibold text-gray-800">
+            Video Upload & Management
+        </h1>
+
+        <form method="POST" action="{{ route('logout') }}">
+            @csrf
+            <button type="submit"
+                class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                    <polyline points="10 17 15 12 10 7"/>
+                    <line x1="15" y1="12" x2="3" y2="12"/>
+                </svg>
+                <span>Logout</span>
+            </button>
+        </form>
+    </div>
 
     {{-- Upload Card --}}
     <form wire:submit.prevent="submit" class="space-y-4 p-6 border rounded-2xl bg-white shadow-sm">
@@ -29,67 +49,48 @@
                 @error('title') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
             </div>
 
-        {{-- Exam Year --}}
-        <div>
-        <label class="block text-sm font-medium mb-1">Exam Year</label>
-        <select
-            wire:model="selectedYear" {{-- <- NOT defer --}}
-            class="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-            <option value="">-- Select Year --</option>
-            @foreach($examYears as $y)
-            <option value="{{ $y }}">{{ $y }}</option>
-            @endforeach
-        </select>
-        @error('selectedYear') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+            {{-- Exam Year --}}
+            <div>
+                <label class="block text-sm font-medium mb-1">Exam Year</label>
+                <select
+                    wire:model="selectedYear"
+                    class="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="">-- Select Year --</option>
+                    @foreach($examYears as $y)
+                        <option value="{{ $y }}">{{ $y }}</option>
+                    @endforeach
+                </select>
 
-        {{-- tiny debug/help text --}}
-        <p class="text-xs text-gray-500 mt-1">
-            Years loaded: {{ is_countable($examYears) ? count($examYears) : 0 }}
-        </p>
-        </div>
-        @if(empty($examYears))
-        <div class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-            No exam years loaded. Check server logs for "common_data_player" warnings.
-        </div>
-        @endif
-        @if($selectedYear && empty($filteredClasses))
-        <div class="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded p-2">
-            Year selected: "{{ $selectedYear }}", but 0 classes matched academic_year.
-            Confirm academic_year strings match exactly.
-        </div>
-        @endif
+                <div wire:loading wire:target="selectedYear" class="text-xs text-gray-500 mt-1">
+                    Loading classes...
+                </div>
 
-        {{-- Class (depends on year) --}}
-        <div>
-        <label class="block text-sm font-medium mb-1">Class</label>
-        <select
-            wire:model="selectedClassId" {{-- <- NOT defer --}}
-            class="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            @disabled(!$selectedYear)>
-            <option value="">-- Select Class --</option>
+                @error('selectedYear') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+            </div>
 
-            @forelse($filteredClasses as $c)
-            <option value="{{ $c['id'] }}">{{ $c['name'] }}</option>
-            @empty
-            {{-- If empty, show a disabled placeholder --}}
-            <option value="" disabled>(No classes for "{{ $selectedYear ?: '—' }}")</option>
-            @endforelse
-        </select>
-        @error('selectedClassId') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+            {{-- Class --}}
+            <div>
+                <label class="block text-sm font-medium mb-1">Class</label>
+                <select
+                    wire:model="selectedClassId"
+                    class="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    @disabled(!$selectedYear)>
+                    <option value="">-- Select Class --</option>
 
-        {{-- tiny debug/help text --}}
-        <p class="text-xs text-gray-500 mt-1">
-            Classes for year: {{ $selectedYear ?: '—' }} · {{ is_countable($filteredClasses) ? count($filteredClasses) : 0 }}
-        </p>
-        </div>
+                    @forelse($filteredClasses as $c)
+                        <option value="{{ $c['id'] }}">{{ $c['name'] }}</option>
+                    @empty
+                        <option value="" disabled>(No classes for "{{ $selectedYear ?: '—' }}")</option>
+                    @endforelse
+                </select>
 
-
-            {{-- (Optional) Video Type select you added earlier --}}
-            {{-- ... keep or remove as you wish ... --}}
+                @error('selectedClassId') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+            </div>
 
             {{-- File --}}
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium mb-1">File (mp4/mov/mkv/webm)</label>
+
                 <input type="file"
                        x-ref="pick"
                        class="hidden"
@@ -163,12 +164,7 @@
         </div>
     </form>
 
-    {{-- Just-uploaded summary (unchanged) --}}
-    @if($created)
-        {{-- ... your existing block ... --}}
-    @endif
-
-    {{-- Recent Videos Table (auto refresh) --}}
+    {{-- Recent Videos Table --}}
     <div class="p-0 border rounded-2xl bg-white shadow-sm overflow-hidden" wire:poll.1500ms>
         <div class="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
             <div class="flex items-center gap-2">
@@ -176,31 +172,21 @@
                 <span class="text-xs text-gray-500">Auto-refreshing</span>
             </div>
 
-            {{-- TOP RIGHT: quick filters --}}
+            {{-- ✅ SERVER SIDE SEARCH (ALL PAGES) --}}
             <div class="flex items-center gap-2 flex-wrap">
-                {{-- Echo current filter for clarity --}}
-                <div class="text-xs text-gray-500">
-                    <span>Year:</span>
-                    <span class="font-medium" x-text="selectedYear || '—'"></span>
-                    <span class="mx-1">/</span>
-                    <span>Class:</span>
-                    <span class="font-medium">
-                        @php
-                            $selected = collect($filteredClasses ?? [])->firstWhere('id', (int)$selectedClassId);
-                        @endphp
-                        {{ $selected['name'] ?? '—' }}
-                    </span>
-                </div>
-
-                {{-- Client-side search remains --}}
-                <input type="text" placeholder="Search title / id / status"
-                       x-model="search"
-                       class="w-56 border rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <input type="text"
+                       placeholder="Search title / id / status / year (ALL pages)"
+                       wire:model.debounce.400ms="backendSearch"
+                       class="w-72 border rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
 
                 <button type="button" wire:click="$refresh"
                         class="px-3 py-1.5 rounded border text-gray-700 hover:bg-gray-50 text-sm">
                     Refresh
                 </button>
+
+                <div wire:loading wire:target="backendSearch" class="text-xs text-gray-500">
+                    Searching...
+                </div>
             </div>
         </div>
 
@@ -210,7 +196,7 @@
                 <tr>
                     <th class="text-left px-4 py-3">ID</th>
                     <th class="text-left px-4 py-3">Title</th>
-                    <th class="text-left px-4 py-3">Year / Class</th> {{-- NEW --}}
+                    <th class="text-left px-4 py-3">Year / Class</th>
                     <th class="text-left px-4 py-3">Preview</th>
                     <th class="text-left px-4 py-3">Status</th>
                     <th class="text-left px-4 py-3 w-64">Progress</th>
@@ -218,47 +204,47 @@
                     <th class="text-left px-4 py-3">Actions</th>
                 </tr>
                 </thead>
+
                 <tbody class="divide-y">
                 @forelse($videos as $v)
-                    <tr class="hover:bg-gray-50"
-                        x-bind:data-text="'#{{ $v->id }} {{ Str::of($v->title)->lower() }} {{ strtolower($v->status) }}'"
-                        x-show="$el.dataset.text.includes(search.toLowerCase())">
-                        <td class="px-4 py-3 font-mono text-xs text-gray-700">#{{ $v->id }}</td>
+                    @php
+                        $clsAll = collect($classList ?? [])->firstWhere('id', (int)($v->class_id ?? 0));
+                        $className = $clsAll['name'] ?? null;
+                    @endphp
+
+                    <tr class="hover:bg-gray-50" wire:key="vid-{{ $v->id }}">
+                        <td class="px-4 py-3 font-mono text-xs text-gray-700 flex items-center gap-2">
+                            <span>{{ $v->id }}</span>
+
+                            <button onclick="copyToClipboard('{{ $v->id }}', this)"
+                                    class="p-1 rounded hover:bg-gray-200"
+                                    type="button">
+                                📋
+                            </button>
+                        </td>
 
                         <td class="px-4 py-3">
-                            <div class="font-medium text-gray-900">{{ $v->title }}</div>
-                     
-                            {{-- show class name under title (optional) --}}
-                            @php
-                                $cls = collect($filteredClasses ?? [])
-                                    ->firstWhere('id', (int)($v->class_id ?? 0));
-                            @endphp
+                          <div class="font-medium text-gray-900 whitespace-pre-wrap">
+    {{ $v->title }}
+</div>
+
                             @if($v->class_id)
                                 <div class="text-[11px] text-gray-500">
-                                    Class: {{ $cls['name'] ?? ('#'.$v->class_id) }}
+                                    Class: {{ $className ?? ('#'.$v->class_id) }}
                                 </div>
                             @endif
                         </td>
 
-                        {{-- NEW: Year / Class cell --}}
-                        @php
-                            // Find class name from the full list, not just filteredClasses (so old rows still resolve)
-                            $clsAll = collect($classList ?? [])->firstWhere('id', (int)($v->class_id ?? 0));
-                            $className = $clsAll['name'] ?? null;
-                        @endphp
                         <td class="px-4 py-3">
                             <div class="flex flex-wrap items-center gap-2">
-                                {{-- Year pill --}}
                                 <span class="inline-flex items-center rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-xs">
                                     {{ $v->year ?? '—' }}
                                 </span>
-                                {{-- Class pill --}}
                                 <span class="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-xs">
                                     {{ $className ?? ($v->class_id ? '#'.$v->class_id : '—') }}
                                 </span>
                             </div>
                         </td>
-
 
                         <td class="px-4 py-3">
                             @if($v->thumbnail_url)
@@ -292,24 +278,30 @@
                             <div class="text-[11px] text-gray-500">{{ $v->created_at->diffForHumans() }}</div>
                         </td>
 
-                    <td class="px-4 py-3">
-                        <div class="flex flex-wrap gap-2 items-center">
-                            <button
-                            type="button"
-                            class="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50 text-sm"
-                            wire:click="retryEncode('{{ $v->id }}')"
-                            wire:loading.attr="disabled"
-                            wire:target="retryEncode">
-                            Retry Encode
-                            </button>
+                        <td class="px-4 py-3">
+                            <div class="flex flex-wrap gap-2 items-center">
+                                <button type="button"
+                                        x-on:click="if (confirm('Are you sure you want to retry encoding this video?')) { $wire.retryEncode('{{ $v->id }}'); }"
+                                        class="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50 text-sm"
+                                        wire:loading.attr="disabled"
+                                        wire:target="retryEncode">
+                                    Retry Encode
+                                </button>
 
-                       
-                             -->
-                        </div>
+                                <button type="button"
+                                        x-on:click="if (confirm('Delete this video permanently?')) { $wire.deleteVideo('{{ $v->id }}'); }"
+                                        class="px-2 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50 text-sm"
+                                        wire:loading.attr="disabled"
+                                        wire:target="deleteVideo">
+                                    Delete
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="7" class="px-4 py-6 text-center text-gray-500">No videos yet.</td></tr>
+                    <tr>
+                        <td colspan="8" class="px-4 py-6 text-center text-gray-500">No videos yet.</td>
+                    </tr>
                 @endforelse
                 </tbody>
             </table>
@@ -320,3 +312,12 @@
         </div>
     </div>
 </div>
+
+<script>
+function copyToClipboard(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+        btn.innerHTML = "✔️";
+        setTimeout(() => { btn.innerHTML = "📋"; }, 1000);
+    });
+}
+</script>
